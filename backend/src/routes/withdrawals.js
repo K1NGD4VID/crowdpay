@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../config/database');
 const logger = require('../config/logger');
 const { requireAuth } = require('../middleware/auth');
+const { idempotency } = require('../middleware/idempotency');
 const { sendAlert } = require('../services/alerting');
 const { withdrawalValidation, validateRequest } = require('../middleware/validation');
 const {
@@ -846,9 +847,21 @@ const platformApproveHandler = asyncHandler(async (req, res) => {
   return res.status(200).json(updatedWithdrawalRow || { status: 'submitted', tx_hash: txHash });
 });
 
-router.post('/:id/approve/platform', requireAuth, requirePlatformApprover, platformApproveHandler);
+router.post(
+  '/:id/approve/platform',
+  requireAuth,
+  requirePlatformApprover,
+  idempotency('wallet:withdrawal-submit'),
+  platformApproveHandler
+);
 // Alias for docs + issue acceptance criteria
-router.post('/:id/approve', requireAuth, requirePlatformApprover, platformApproveHandler);
+router.post(
+  '/:id/approve',
+  requireAuth,
+  requirePlatformApprover,
+  idempotency('wallet:withdrawal-submit'),
+  platformApproveHandler
+);
 
 router.post(
   '/:id/cancel',
