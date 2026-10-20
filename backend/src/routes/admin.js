@@ -24,6 +24,21 @@ const {
   processDelivery,
   processCampaignWebhookDelivery,
 } = require('../services/webhookDispatcher');
+const { logAuditEvent } = require('../services/auditService');
+
+async function recordPrivilegedAudit(payload) {
+  try {
+    return await logAuditEvent(payload);
+  } catch (err) {
+    logger.error('Privileged audit event failed', {
+      action: payload.action,
+      resource_type: payload.resourceType,
+      resource_id: payload.resourceId,
+      error: err.message,
+    });
+    return null;
+  }
+}
 
 /**
  * @openapi
@@ -213,6 +228,17 @@ router.patch(
       [req.user.userId, 'suspend', 'campaign', id, JSON.stringify({ reason })]
     );
 
+    await recordPrivilegedAudit({
+      actorId: req.user.userId,
+      action: 'campaign.suspended',
+      resourceType: 'campaign',
+      resourceId: id,
+      before: { status: campaignResult.rows[0].status },
+      after: { status: updateResult.rows[0].status, suspended_reason: reason || null },
+      metadata: { reason: reason || null },
+      req,
+    });
+
     cache.invalidatePrefix(`campaign:${id}`);
 
     res.json({ campaign: updateResult.rows[0] });
@@ -253,6 +279,16 @@ router.patch(
       'INSERT INTO admin_actions (admin_user_id, action_type, target_type, target_id) VALUES ($1, $2, $3, $4)',
       [req.user.userId, 'restore', 'campaign', id]
     );
+
+    await recordPrivilegedAudit({
+      actorId: req.user.userId,
+      action: 'campaign.restored',
+      resourceType: 'campaign',
+      resourceId: id,
+      before: { status: campaignResult.rows[0].status },
+      after: { status: updateResult.rows[0].status },
+      req,
+    });
 
     cache.invalidatePrefix(`campaign:${id}`);
 
